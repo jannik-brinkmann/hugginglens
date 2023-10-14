@@ -8,7 +8,14 @@ from collections import OrderedDict
 from functools import partial
 from PIL.Image import Image
 from typing import List, Optional, Dict
-from transformers import ViTConfig, ViTForMaskedImageModeling, ViTImageProcessor, PretrainedConfig, AutoConfig
+from transformers import (
+    AutoConfig,
+    CLIPConfig,
+    CLIPModel,
+    ViTConfig, 
+    ViTForMaskedImageModeling, 
+    PretrainedConfig
+)
 
 from transformer_lens.hook_points import HookedRootModule, HookPoint
 
@@ -16,7 +23,8 @@ from .hook_points import get_hook_points
 
 
 MODEL_MAPPING = OrderedDict([
-    (ViTConfig, ViTForMaskedImageModeling)
+    (CLIPConfig, CLIPModel),
+    (ViTConfig, ViTForMaskedImageModeling),
 ])
 
 
@@ -28,7 +36,7 @@ class HookedVisionTransformer(HookedRootModule):
     weights via HookedVisionTransformer.from_config class method.
     """
 
-    def __init__(self, model_name_or_path: str, config: PretrainedConfig, device: torch.device) -> None:
+    def __init__(self, model_name_or_path: str, config: PretrainedConfig, device: torch.device):
         super().__init__()
 
         self.model_name_or_path = model_name_or_path
@@ -57,7 +65,7 @@ class HookedVisionTransformer(HookedRootModule):
         # module instances, and another directory that stores references to hook points
         self.mod_dict = {}
         self.hook_dict: Dict[str, HookPoint] = {}
-        self.inject_hook_points()
+        self.add_hook_points()
 
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, device: torch.device):
@@ -88,7 +96,7 @@ class HookedVisionTransformer(HookedRootModule):
             return hook_point(func(self, *args, **kwargs))
         return wrapper
 
-    def inject_hook_points(self):
+    def add_hook_points(self):
         """post-hoc injection of hook points"""
 
         hook_points = get_hook_points(self.model, self.config)
@@ -108,23 +116,3 @@ class HookedVisionTransformer(HookedRootModule):
                 else:
                     target = getattr(target, part)
             setattr(target, parts[-1], wrapped_func)
-
-
-    def select_hook_points(self):
-
-        hook_points = {}
-        
-        hook_points["embeddings"] = ("vit.embeddings.forward", self.model.vit.embeddings.forward)
-        for idx, layer in enumerate(self.model.vit.encoder.layer):
-            hook_points[f"encoder.{idx}.ln1"] = (f"vit.encoder.layer[{idx}].layernorm_before.forward", layer.layernorm_before.forward)
-            hook_points[f"encoder.{idx}.attn.q"] = (f"vit.encoder.layer[{idx}].attention.attention.query.forward", layer.attention.attention.query.forward)
-            hook_points[f"encoder.{idx}.attn.k"] = (f"vit.encoder.layer[{idx}].attention.attention.key.forward", layer.attention.attention.key.forward)
-            hook_points[f"encoder.{idx}.attn.v"] = (f"vit.encoder.layer[{idx}].attention.attention.value.forward", layer.attention.attention.value.forward)
-            hook_points[f"encoder.{idx}.ln2"] = (f"vit.encoder.layer[{idx}].layernorm_after.forward", layer.layernorm_after.forward)
-            hook_points[f"encoder.{idx}.intermediate"] = (f"vit.encoder.layer[{idx}].intermediate.forward", layer.intermediate.forward)
-        hook_points["ln"] = ("vit.layernorm.forward", self.model.vit.layernorm.forward)
-        return hook_points
-
-
-
-
