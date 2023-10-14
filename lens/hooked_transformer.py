@@ -1,20 +1,24 @@
 import argparse
-
+import functools
 import torch
 import torch.nn as nn
 import transformers
 
+from collections import OrderedDict
 from functools import partial
 from PIL.Image import Image
-from transformers import ViTConfig, ViTForMaskedImageModeling, ViTImageProcessor, PretrainedConfig, AutoConfig
 from typing import List, Optional, Dict
+from transformers import ViTConfig, ViTForMaskedImageModeling, ViTImageProcessor, PretrainedConfig, AutoConfig
 
 from transformer_lens.hook_points import HookedRootModule, HookPoint
 
-import functools
+from .hook_points import get_hook_points
 
 
-## bits and bytes
+MODEL_MAPPING = OrderedDict([
+    (ViTConfig, ViTForMaskedImageModeling)
+])
+
 
 class HookedVisionTransformer(HookedRootModule):
     """
@@ -27,6 +31,9 @@ class HookedVisionTransformer(HookedRootModule):
     def __init__(self, model_name_or_path: str, config: PretrainedConfig, device: torch.device) -> None:
         super().__init__()
 
+        self.model_name_or_path = model_name_or_path
+        self.config = config
+
         # check if model has been instantiated with either config or weights, if not throw an error
         if not isinstance(config, PretrainedConfig):
             raise ValueError(
@@ -35,11 +42,14 @@ class HookedVisionTransformer(HookedRootModule):
                 f"or using `{self.__class__.__name__}.from_config(config)`."
             )
 
-        self.model_name_or_path = model_name_or_path
-        self.config = config
-
-        # setup model based on config and weights
-        self.model = ViTForMaskedImageModeling.from_pretrained(self.model_name_or_path, config=self.config)
+        # setup model based on config or weights
+        if type(config) in MODEL_MAPPING.keys():
+            model_class = MODEL_MAPPING[type(config)]
+        else:
+            raise EnvironmentError(
+                f'{self.__class__.__name__} is designed to be instantiated given a registered ModelConfig.'
+            )
+        self.model = model_class.from_pretrained(self.model_name_or_path, config=self.config)
         self.model.to(device)
         self.model.eval()
 
@@ -81,7 +91,7 @@ class HookedVisionTransformer(HookedRootModule):
     def inject_hook_points(self):
         """post-hoc injection of hook points"""
 
-        hook_points = self.select_hook_points()
+        hook_points = get_hook_points(self.model, self.config)
 
         # inject the HookPoints using the decorator
         for description, (path, func) in hook_points.items():
