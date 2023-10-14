@@ -6,7 +6,7 @@ import transformers
 
 from functools import partial
 from PIL.Image import Image
-from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor, PretrainedConfig, AutoConfig
+from transformers import ViTConfig, ViTForMaskedImageModeling, ViTImageProcessor, PretrainedConfig, AutoConfig
 from typing import List, Optional, Dict
 
 from transformer_lens.hook_points import HookedRootModule, HookPoint
@@ -39,7 +39,7 @@ class HookedVisionTransformer(HookedRootModule):
         self.config = config
 
         # setup model based on config and weights
-        self.model = ViTForImageClassification.from_pretrained(self.model_name_or_path, config=self.config)
+        self.model = ViTForMaskedImageModeling.from_pretrained(self.model_name_or_path, config=self.config)
         self.model.to(device)
         self.model.eval()
 
