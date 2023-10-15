@@ -1,7 +1,5 @@
 # VisionTransformerLens
 
-[![](https://img.shields.io/github/license/jannik-brinkmann/vision-transformerlens.svg)](https://github.com/jannik-brinkmann/vision-transformerlens/blob/master/LICENSE.md)
-
 This is an extension of [TransformerLens](https://github.com/neelnanda-io/TransformerLens) that integrates other modalities using [HuggingFace](https://github.com/huggingface). It incorporates components of TransformerLens such as `HookPoints` and retains signature functionalities like `run_with_cache()`, to make it straightforward for users to explore multimodal mechanistic interpretability.  
 
 ### Installation
