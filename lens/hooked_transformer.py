@@ -14,21 +14,15 @@ from transformers import (
     CLIPModel,
     ViTConfig, 
     ViTForMaskedImageModeling, 
-    PretrainedConfig
+    PretrainedConfig, 
+    AutoModel
 )
 
-from transformer_lens.hook_points import HookedRootModule, HookPoint
-
-from .hook_points import get_hook_points
-
-
-MODEL_MAPPING = OrderedDict([
-    (CLIPConfig, CLIPModel),
-    (ViTConfig, ViTForMaskedImageModeling),
-])
+from transformer_lens.hook_points import HookPoint
+from .hook_points import HFHookedRootModule
 
 
-class HookedVisionTransformer(HookedRootModule):
+class HookedVisionTransformer(HFHookedRootModule):
     """
     This class implements an interface to VisionTransformer implementations from HuggingFace, with HookPoints on all interesting activations.
     
@@ -51,18 +45,12 @@ class HookedVisionTransformer(HookedRootModule):
             )
 
         # setup model based on config or weights
-        if type(config) in MODEL_MAPPING.keys():
-            model_class = MODEL_MAPPING[type(config)]
-        else:
-            raise EnvironmentError(
-                f'{self.__class__.__name__} is designed to be instantiated given a registered ModelConfig.'
-            )
-        self.model = model_class.from_pretrained(self.model_name_or_path, config=self.config)
+        self.model = AutoModel.from_pretrained(self.model_name_or_path, config = self.config)
         self.model.to(device)
         self.model.eval()
 
-        # inject hook points into model implementation, build a hook directory mapping module names to
-        # module instances, and another directory that stores references to hook points
+        # inject hook points into model implementation, build a hook directory mapping module names to module instances, and another directory 
+        # that stores references to hook points
         self.mod_dict = {}
         self.hook_dict: Dict[str, HookPoint] = {}
         self.add_hook_points()
@@ -83,36 +71,26 @@ class HookedVisionTransformer(HookedRootModule):
         outputs = self.model(*args, **kwargs)
         return outputs
 
-    def add_hook_point(self, func, description):
-        # a decorator to wrap a function into a HookPoints
-
+    def add_hook_point(self, name, module):
+        """a decorator to wrap a function into a HookPoint"""
         hook_point = HookPoint()
-        hook_point.name = description
-        self.mod_dict[description] = hook_point
-        self.hook_dict[description] = hook_point
+        hook_point.name = name
+        self.mod_dict[name] = hook_point
+        self.hook_dict[name] = hook_point
 
-        @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
-            return hook_point(func(self, *args, **kwargs))
-        return wrapper
+        @functools.wraps(module)
+        def decorator(*args, **kwargs):
+            return hook_point(module(*args, **kwargs))
+        return decorator
 
     def add_hook_points(self):
         """post-hoc injection of hook points"""
 
-        hook_points = get_hook_points(self.model, self.config)
+        # determine named modules
+        named_modules = {name: module for name, module in self.model.named_modules()}
 
-        # inject the HookPoints using the decorator
-        for description, (path, func) in hook_points.items():
-            wrapped_func = self.add_hook_point(func, description)
-            # Update the original method with the wrapped function
-            parts = path.split('.')
-            target = self.model
-            for i, part in enumerate(parts[:-1]):
-                if "[" in part and "]" in part:
-                    # Handle the case where the part is an index like 'layer[0]'
-                    attribute_name, index_str = part.split('[')
-                    index = int(index_str.rstrip(']'))
-                    target = getattr(target, attribute_name)[index]
-                else:
-                    target = getattr(target, part)
-            setattr(target, parts[-1], wrapped_func)
+        # inject a HookPoint at each named module using the decorator
+        for name, module in named_modules.items():
+            if name != '' and hasattr(module, "forward"):
+                decorated_method = self.add_hook_point(name, getattr(module, "forward"))
+                setattr(module, "forward", decorated_method)

@@ -1,85 +1,75 @@
-from collections import OrderedDict
-from transformers import CLIPConfig, ViTConfig
+import torch
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+
+from transformer_lens.hook_points import HookedRootModule
 
 
-class BaseHookPoints:
-    def __init__(self):
-        self.hook_points = {}
-    def get_hook_points(self):
-        raise NotImplementedError(f"'get_hook_points' not implemented for {self.model}.")
+NamesFilter = Optional[Union[Callable[[str], bool], Sequence[str]]]
 
 
-class ViTHookPoints(BaseHookPoints):
-    def get_hook_points(self, model):
-        self.hook_points["embeddings"] = ("vit.embeddings.forward", model.vit.embeddings.forward)
-        for idx, layer in enumerate(model.vit.encoder.layer):
-            self.hook_points[f"encoder.{idx}.ln1"] = (f"vit.encoder.layer[{idx}].layernorm_before.forward", layer.layernorm_before.forward)
-            self.hook_points[f"encoder.{idx}.attn.q"] = (f"vit.encoder.layer[{idx}].attention.attention.query.forward", layer.attention.attention.query.forward)
-            self.hook_points[f"encoder.{idx}.attn.k"] = (f"vit.encoder.layer[{idx}].attention.attention.key.forward", layer.attention.attention.key.forward)
-            self.hook_points[f"encoder.{idx}.attn.v"] = (f"vit.encoder.layer[{idx}].attention.attention.value.forward", layer.attention.attention.value.forward)
-            self.hook_points[f"encoder.{idx}.ln2"] = (f"vit.encoder.layer[{idx}].layernorm_after.forward", layer.layernorm_after.forward)
-            self.hook_points[f"encoder.{idx}.intermediate"] = (f"vit.encoder.layer[{idx}].intermediate.forward", layer.intermediate.forward)
-        self.hook_points["ln_final"] = ("vit.layernorm.forward", model.vit.layernorm.forward)
-        return self.hook_points#
+class HFHookedRootModule(HookedRootModule):
 
+    def __init__(self, *args):
+        super().__init__(*args)
+    
+    def get_caching_hooks(
+        self,
+        names_filter: NamesFilter = None,
+        incl_bwd: bool = False,
+        device=None,
+        remove_batch_dim: bool = False,
+        cache: Optional[dict] = None,
+    ) -> dict:
+        if cache is None:
+            cache = {}
 
-class CLIPHookPoints(BaseHookPoints):
-    def get_hook_points(self, model):
-        
-        # text model
-        self.hook_points["text_token_embeddings"] = ("text_model.embeddings.token_embedding.forward", model.text_model.embeddings.token_embedding.forward)
-        self.hook_points["text_position_embeddings"] = ("text_model.embeddings.position_embedding.forward", model.text_model.embeddings.position_embedding.forward)
-        for idx, layer in enumerate(model.text_model.encoder.layers):
+        if names_filter is None:
+            names_filter = lambda name: True
+        elif type(names_filter) == str:
+            filter_str = names_filter
+            names_filter = lambda name: name == filter_str
+        elif type(names_filter) == list:
+            filter_list = names_filter
+            names_filter = lambda name: name in filter_list
+        self.is_caching = True
 
-            self.hook_points[f"text_model.{idx}.ln1"] = (f"text_model.encoder.layers[{idx}].layer_norm1.forward", layer.layer_norm1.forward)
-            self.hook_points[f"text_model.{idx}.attn_q"] = (f"text_model.encoder.layers[{idx}].self_attn.q_proj.forward", layer.self_attn.q_proj.forward)
-            self.hook_points[f"text_model.{idx}.attn_k"] = (f"text_model.encoder.layers[{idx}].self_attn.k_proj.forward", layer.self_attn.k_proj.forward)
-            self.hook_points[f"text_model.{idx}.attn_v"] = (f"text_model.encoder.layers[{idx}].self_attn.v_proj.forward", layer.self_attn.v_proj.forward)
-            self.hook_points[f"text_model.{idx}.attn_z"] = (f"text_model.encoder.layers[{idx}].self_attn.out_proj.forward", layer.self_attn.out_proj.forward)
+        def save_hook(tensor, hook):
 
-            self.hook_points[f"text_model.{idx}.ln2"] = (f"text_model.encoder.layers[{idx}].layer_norm2.forward", layer.layer_norm2.forward)
-            self.hook_points[f"text_model.{idx}.mlp.act_fn"] = (f"text_model.encoder.layers[{idx}].mlp.activation_fn.forward", layer.mlp.activation_fn.forward)
-            self.hook_points[f"text_model.{idx}.mlp.fc1"] = (f"text_model.encoder.layers[{idx}].mlp.fc1.forward", layer.mlp.fc1.forward)
-            self.hook_points[f"text_model.{idx}.mlp.fc2"] = (f"text_model.encoder.layers[{idx}].mlp.fc2.forward", layer.mlp.fc2.forward)
-        self.hook_points[f"text_model.ln_final"] = (f"text_model.final_layer_norm.forward", model.text_model.final_layer_norm.forward)
+            # in HuggingFace's transformers, the forward() function might not return a tensor, but a dict with various outputs. Therefore, 
+            # we check if the variable 'tensor' is a tensor, or if it's a dictionary that contains a tensor under the "hidden_states" key.
+            if isinstance(tensor, torch.Tensor):
+                pass
+            elif isinstance(tensor, dict) and "hidden_states" in tensor and isinstance(tensor["hidden_states"], torch.Tensor):
+                tensor = tensor["hidden_states"]
+            else:
+                return
 
-        # vision model
-        self.hook_points["vision_embeddings"] = ("vision_model.embeddings.forward", model.vision_model.embeddings.forward)
-        self.hook_points["vision_embeddings"] = ("vision_model.embeddings.forward", model.vision_model.embeddings.forward)
-        for idx, layer in enumerate(model.vision_model.encoder.layers):
+            if remove_batch_dim:
+                cache[hook.name] = tensor.detach().to(device)[0]
+            else:
+                cache[hook.name] = tensor.detach().to(device)
 
-            self.hook_points[f"vision_model.{idx}.ln1"] = (f"vision_model.encoder.layers[{idx}].layer_norm1.forward", layer.layer_norm1.forward)
-            self.hook_points[f"vision_model.{idx}.attn_q"] = (f"vision_model.encoder.layers[{idx}].self_attn.q_proj.forward", layer.self_attn.q_proj.forward)
-            self.hook_points[f"vision_model.{idx}.attn_k"] = (f"vision_model.encoder.layers[{idx}].self_attn.k_proj.forward", layer.self_attn.k_proj.forward)
-            self.hook_points[f"vision_model.{idx}.attn_v"] = (f"vision_model.encoder.layers[{idx}].self_attn.v_proj.forward", layer.self_attn.v_proj.forward)
-            self.hook_points[f"vision_model.{idx}.attn_z"] = (f"vision_model.encoder.layers[{idx}].self_attn.out_proj.forward", layer.self_attn.out_proj.forward)
+        def save_hook_back(tensor, hook):
 
-            self.hook_points[f"vision_model.{idx}.ln2"] = (f"vision_model.encoder.layers[{idx}].layer_norm2.forward", layer.layer_norm2.forward)
-            self.hook_points[f"vision_model.{idx}.mlp.act_fn"] = (f"vision_model.encoder.layers[{idx}].mlp.activation_fn.forward", layer.mlp.activation_fn.forward)
-            self.hook_points[f"vision_model.{idx}.mlp.fc1"] = (f"vision_model.encoder.layers[{idx}].mlp.fc1.forward", layer.mlp.fc1.forward)
-            self.hook_points[f"vision_model.{idx}.mlp.fc2"] = (f"vision_model.encoder.layers[{idx}].mlp.fc2.forward", layer.mlp.fc2.forward)
-        
-        self.hook_points["vision_model.ln1"] = ("vision_model.pre_layrnorm.forward", model.vision_model.pre_layrnorm.forward)
-        self.hook_points["vision_model.ln_final"] = ("vision_model.post_layernorm.forward", model.vision_model.post_layernorm.forward)
+            # see comment in 'save_hook'
+            if isinstance(tensor, torch.Tensor):
+                pass
+            elif isinstance(tensor, dict) and "hidden_states" in tensor and isinstance(tensor["hidden_states"], torch.Tensor):
+                tensor = tensor["hidden_states"]
+            else:
+                return
 
-        # joint-embedding space
-        self.hook_points["visual_projection"] = ("visual_projectionforward", model.visual_projection.forward)
-        self.hook_points["text_projection"] = ("text_projection.forward", model.text_projection.forward)        
-        return self.hook_points
+            if remove_batch_dim:
+                cache[hook.name + "_grad"] = tensor.detach().to(device)[0]
+            else:
+                cache[hook.name + "_grad"] = tensor.detach().to(device)
 
+        fwd_hooks = []
+        bwd_hooks = []
+        for name, hp in self.hook_dict.items():
+            if names_filter(name):
+                fwd_hooks.append((name, save_hook))
+                if incl_bwd:
+                    bwd_hooks.append((name, save_hook_back))
 
-HOOK_POINT_MAPPING = OrderedDict([
-    (CLIPConfig, CLIPHookPoints),
-    (ViTConfig, ViTHookPoints),
-])
-
-
-def get_hook_points(model, config):
-
-    if type(config) in HOOK_POINT_MAPPING.keys():
-        cls = HOOK_POINT_MAPPING[type(config)]()
-    else:
-        raise EnvironmentError(
-            f'No HookPoints specified for {config}.'
-        )
-    return cls.get_hook_points(model)
+        return cache, fwd_hooks, bwd_hooks
