@@ -1,5 +1,5 @@
 import torch
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Optional, Sequence, Union
 
 from transformer_lens.hook_points import HookedRootModule
 

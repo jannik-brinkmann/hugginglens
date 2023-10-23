@@ -1,2 +1,2 @@
-from .hooked_transformer import HookedVisionTransformer
+from .hooked_transformer import HookedHFTransformer
 from .utils import plot_heatmaps

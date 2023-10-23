@@ -1,51 +1,26 @@
-import argparse
 import functools
 import torch
-import torch.nn as nn
-import transformers
 
-from collections import OrderedDict
-from functools import partial
-from PIL.Image import Image
-from typing import List, Optional, Dict
-from transformers import (
-    AutoConfig,
-    CLIPConfig,
-    CLIPModel,
-    ViTConfig, 
-    ViTForMaskedImageModeling, 
-    PretrainedConfig, 
-    AutoModel
-)
-
+from typing import Dict
+from transformers import PretrainedConfig, PreTrainedModel
 from transformer_lens.hook_points import HookPoint
+
 from .hook_points import HFHookedRootModule
 
 
-class HookedVisionTransformer(HFHookedRootModule):
+class HookedHFTransformer(HFHookedRootModule):
     """
-    This class implements an interface to VisionTransformer implementations from HuggingFace, with HookPoints on all interesting activations.
+    This class implements an interface to model implementations from HuggingFace, with HookPoints on all interesting activations.
     
     It can instantiated using pretrained weights via the HookedVisionTransformer.from_pretrained class method, or with randomly initialized 
     weights via HookedVisionTransformer.from_config class method.
     """
 
-    def __init__(self, model_name_or_path: str, config: PretrainedConfig, device: torch.device):
+    def __init__(self, model: PreTrainedModel, device: torch.device = "cuda"):
         super().__init__()
 
-        self.model_name_or_path = model_name_or_path
-        self.config = config
-
-        # check if model has been instantiated with either config or weights, if not throw an error
-        if not isinstance(config, PretrainedConfig):
-            raise ValueError(
-                f"{self.__class__.__name__} is designed to be instantiated "
-                f"using `{self.__class__.__name__}.from_pretrained(model_name_or_path)` "
-                f"or using `{self.__class__.__name__}.from_config(config)`."
-            )
-
         # setup model based on config or weights
-        self.model = AutoModel.from_pretrained(self.model_name_or_path, config = self.config)
+        self.model = model
         self.model.to(device)
         self.model.eval()
 
@@ -54,18 +29,10 @@ class HookedVisionTransformer(HFHookedRootModule):
         self.mod_dict = {}
         self.hook_dict: Dict[str, HookPoint] = {}
         self.add_hook_points()
-
-    @classmethod
-    def from_pretrained(cls, model_name_or_path: str, device: torch.device):
-
-        # instantiate class with model configuration and weights
-        config = AutoConfig.from_pretrained(model_name_or_path)
-        cls_instance = cls(
-            model_name_or_path=model_name_or_path,
-            config=config,
-            device=device
-        )
-        return cls_instance
+        
+    @property
+    def config(self):
+        return self.model.config
 
     def forward(self, *args, **kwargs):
         outputs = self.model(*args, **kwargs)
