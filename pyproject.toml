@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "hugginglens"
+version = "0.1.0"
+description = ""
+authors = ["Jannik Brinkmann <contact.jannikbrinkmann@gmail.com>"]
+readme = "README.md"
+
+
+[tool.poetry.dependencies]
+python = ">=3.10, <3.13"
+torch = "^2.1.0"
+transformer-lens = "^1.9.1"
+numpy = "^1.26.1"
+transformers = "^4.35.0"
+accelerate = "^0.24.1"
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

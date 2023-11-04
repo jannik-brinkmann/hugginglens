@@ -10,10 +10,7 @@ from .hook_points import HFHookedRootModule
 
 class HookedHFTransformer(HFHookedRootModule):
     """
-    This class implements an interface to model implementations from HuggingFace, with HookPoints on all interesting activations.
-    
-    It can instantiated using pretrained weights via the HookedVisionTransformer.from_pretrained class method, or with randomly initialized 
-    weights via HookedVisionTransformer.from_config class method.
+    This class implements an interface to model implementations from HuggingFace, with HookPoints on activations.
     """
 
     def __init__(self, model: PreTrainedModel, device: torch.device = "cuda"):
